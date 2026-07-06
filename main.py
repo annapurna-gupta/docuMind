@@ -2,12 +2,19 @@ from fastapi import FastAPI, UploadFile, File
 from pypdf import PdfReader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
+from database import SessionLocal
+from models import Document
 import chromadb
 import io
 import uuid
 from groq import Groq
 import os
 from dotenv import load_dotenv
+import hashlib
+from database import engine
+from models import Base
+
+Base.metadata.create_all(bind=engine)
 
 load_dotenv()
 print(os.getenv("GROQ_API_KEY"))
@@ -33,6 +40,20 @@ async def upload_pdf(file: UploadFile = File(...)):
         }
     
     contents = await file.read()
+    file_hash = hashlib.sha256(contents).hexdigest()
+
+    db = SessionLocal()
+
+    # check if hash exist or not
+    existing_doc = db.query(Document).filter(
+        Document.file_hash == file_hash
+    ).first()
+
+    if existing_doc:
+        return{
+            "message": "Document already exists!!",
+            "doc_id": existing_doc.doc_id
+        }
 
     pdf = PdfReader(io.BytesIO(contents))
 
@@ -60,7 +81,15 @@ async def upload_pdf(file: UploadFile = File(...)):
         embeddings=embeddings,
         ids=[f"chunk_{i}" for i in range(len(chunks))]
     )
-    print("Done embedding!")
+
+    new_document = Document(
+        doc_id=doc_id,
+        filename=file.filename,
+        file_hash=file_hash
+    )
+
+    db.add(new_document)
+    db.commit()
     
     return {
         "message": "PDF uploaded and indexed successfully",
