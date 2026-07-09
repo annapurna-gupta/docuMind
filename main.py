@@ -21,6 +21,15 @@ print(os.getenv("GROQ_API_KEY"))
 
 app = FastAPI()
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
@@ -98,6 +107,44 @@ async def upload_pdf(file: UploadFile = File(...)):
         "total_chunks": len(chunks),
         "doc_id": doc_id
     }
+
+@app.get("/documents")
+def get_all_documents():
+    db = SessionLocal()
+    documents = db.query(Document).all()
+    db.close()
+    return {
+        "documents": [
+            {
+                "doc_id": doc.doc_id,
+                "filename": doc.filename,
+                "uploaded_at": str(doc.created_at)
+            }
+            for doc in documents
+        ]
+    }
+
+@app.delete("/delete/{doc_id}")
+def delete_document(doc_id: str):
+    db = SessionLocal()
+    
+    # delete from postgres
+    doc = db.query(Document).filter(Document.doc_id == doc_id).first()
+    if not doc:
+        db.close()
+        return {"error": "Document not found"}
+    
+    db.delete(doc)
+    db.commit()
+    db.close()
+    
+    # delete from chromadb
+    try:
+        chroma_client.delete_collection(name=f"doc_{doc_id}")
+    except:
+        pass
+    
+    return {"message": f"Document {doc_id} deleted successfully"}
 
 @app.post("/ask")
 async def ask_question(doc_id: str, question: str):
