@@ -11,13 +11,8 @@ from groq import Groq
 import os
 from dotenv import load_dotenv
 import hashlib
-from database import engine
-from models import Base
-
-Base.metadata.create_all(bind=engine)
 
 load_dotenv()
-print(os.getenv("GROQ_API_KEY"))
 
 app = FastAPI()
 
